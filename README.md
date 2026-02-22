@@ -1,73 +1,15 @@
-# MegaPrep Result Management System
+# MegaPrep Coaching Homepage
 
-A modern, responsive Result Management Website for MegaPrep Coaching.
+This repository now contains a clean, responsive **homepage only** for MegaPrep Coaching Center.
 
-## Tech Stack
-- Frontend: HTML, CSS, Bootstrap, JavaScript
-- Backend: Node.js + Express
-- Database: MySQL
-- Auth: JWT + bcrypt password hashing
+## Files
+- `public/index.html` – homepage markup
+- `public/css/styles.css` – custom styles
+- `public/js/main.js` – basic script placeholder
 
-## Project Structure
-
+## Run Locally
+```bash
+cd public
+python3 -m http.server 4000
 ```
-megaprep/
-├── config/
-│   └── db.js
-├── db/
-│   └── schema.sql
-├── middleware/
-│   └── auth.js
-├── public/
-│   ├── admin/
-│   │   ├── dashboard.html
-│   │   └── login.html
-│   ├── css/
-│   │   └── styles.css
-│   ├── js/
-│   │   ├── admin.js
-│   │   ├── dashboard.js
-│   │   └── main.js
-│   └── index.html
-├── routes/
-│   ├── admin.js
-│   ├── auth.js
-│   └── public.js
-├── .env.example
-├── package.json
-└── server.js
-```
-
-## Setup
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-2. Configure environment:
-   ```bash
-   cp .env.example .env
-   ```
-3. Create DB and seed data:
-   ```bash
-   mysql -u root -p < db/schema.sql
-   ```
-4. Run app:
-   ```bash
-   npm run dev
-   ```
-
-## Demo Credentials
-- Username: `admin`
-- Password: `admin123`
-
-## Features Implemented
-- Public result search by roll + batch + exam.
-- Loading animation during search.
-- Result details with print-friendly format.
-- Admin login with JWT authentication.
-- Admin dashboard with:
-  - Manual result entry
-  - Bulk CSV upload
-  - Dashboard statistics
-  - Delete API for results
-- MySQL relational schema for all required tables.
+Then open `http://127.0.0.1:4000`.
