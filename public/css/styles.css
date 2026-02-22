@@ -1,0 +1,43 @@
+:root {
+  --mega-primary: #0d6efd;
+  --mega-secondary: #198754;
+  --mega-bg: #f1f6ff;
+}
+
+body {
+  background: var(--mega-bg);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.hero-header {
+  background: linear-gradient(120deg, #0a4db0, #1a8d58);
+  color: #fff;
+}
+
+.result-card,
+.notice-card,
+.search-card,
+.stat-card {
+  border: 0;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(13, 44, 87, 0.08);
+}
+
+.loading-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.7);
+  z-index: 9999;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-overlay.active {
+  display: flex;
+}
+
+.footer {
+  background: #062f66;
+  color: #fff;
+}
