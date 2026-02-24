@@ -481,9 +481,16 @@ function generatePaper(){
   const paper = { id: uid(), createdAt: new Date().toLocaleString(), filters, examMeta, mcq, creative, sets: [] };
   sets.forEach(setName => {
     const sq = shuffle(mcq).map(q => {
-      const shuffledOptions = Object.fromEntries(shuffle(Object.entries(q.options || {})));
+      const optionValues = shuffle(Object.values(q.options || {}).filter(Boolean));
+      const labels = ['A', 'B', 'C', 'D'];
+      const shuffledOptions = {};
+      labels.forEach((label, idx) => {
+        shuffledOptions[label] = optionValues[idx] ?? '';
+      });
+
       const correctText = (q.options || {})[q.correct];
-      const mappedCorrect = Object.entries(shuffledOptions).find(([, val]) => val === correctText)?.[0] || q.correct;
+      const mappedCorrect = labels.find(label => shuffledOptions[label] === correctText) || 'A';
+
       return { ...q, shuffledOptions, mappedCorrect };
     });
     paper.sets.push({ setName, questions: sq, key: sq.map((q,i)=>`${i+1}. ${q.mappedCorrect}`).join(', ') });
