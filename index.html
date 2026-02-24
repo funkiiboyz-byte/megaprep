@@ -482,21 +482,32 @@ function generatePaper(){
   sets.forEach(setName => {
     const sq = shuffle(mcq).map(q => {
       const labels = ['A', 'B', 'C', 'D'];
+      const originalCorrect = String(q.correct || 'A').trim().toUpperCase();
       const originalEntries = labels.map(label => ({ label, value: (q.options || {})[label] ?? '' }));
       const shuffledEntries = shuffle(originalEntries);
 
-      const shuffledOptions = {};
+      const shuffledOptions = { A:'', B:'', C:'', D:'' };
       let mappedCorrect = 'A';
 
       labels.forEach((newLabel, idx) => {
         const entry = shuffledEntries[idx] || { label: newLabel, value: '' };
         shuffledOptions[newLabel] = entry.value;
-        if (entry.label === q.correct) mappedCorrect = newLabel;
+        if (entry.label === originalCorrect) mappedCorrect = newLabel;
       });
 
-      return { ...q, shuffledOptions, mappedCorrect };
+      return {
+        ...q,
+        shuffledOptions,
+        mappedCorrect,
+        optionOrder: labels
+      };
     });
-    paper.sets.push({ setName, questions: sq, key: sq.map((q,i)=>`${i+1}. ${q.mappedCorrect}`).join(', ') });
+
+    paper.sets.push({
+      setName,
+      questions: sq,
+      key: sq.map((item, idx) => `${idx + 1}. ${item.mappedCorrect}`).join(', ')
+    });
   });
 
   state.generatedPapers.unshift(paper);
