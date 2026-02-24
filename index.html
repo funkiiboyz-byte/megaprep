@@ -9,6 +9,7 @@
     window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] } };
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body class="bg-slate-100 text-slate-900">
   <div class="min-h-screen flex">
@@ -359,19 +360,33 @@ function deleteBulk(){ const ids = [...document.querySelectorAll('.bulk:checked'
 function editQuestion(id){ const q = state.questions.find(x => x.id===id); const txt = prompt('Edit question text:', q.question); if(!txt) return; q.question = txt; save(); renderQuestionBank(); }
 
 function exportQuestions(){
-  const payload = {
-    exportedAt: new Date().toISOString(),
-    version: 1,
-    questions: state.questions
-  };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `megaprep-question-bank-${Date.now()}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(a.href);
+  if (!window.XLSX) {
+    alert('XLSX library failed to load. Please check internet connection and try again.');
+    return;
+  }
+
+  const rows = state.questions.map(q => ({
+    ID: q.id,
+    Type: q.type,
+    Board: q.curriculum?.board || '',
+    Class: q.curriculum?.class || '',
+    Subject: q.curriculum?.subject || '',
+    Chapter: q.curriculum?.chapter || '',
+    Question: q.question || '',
+    OptionA: q.options?.A || '',
+    OptionB: q.options?.B || '',
+    OptionC: q.options?.C || '',
+    OptionD: q.options?.D || '',
+    Correct: q.correct || '',
+    Solution: q.solution || '',
+    Marks: q.marks ?? '',
+    Difficulty: q.difficulty || ''
+  }));
+
+  const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Note: 'No questions found' }]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'QuestionBank');
+  XLSX.writeFile(wb, `megaprep-question-bank-${Date.now()}.xlsx`);
 }
 
 function importQuestions(event){
