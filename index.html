@@ -439,21 +439,28 @@ function printPaper(id){
     return;
   }
 
+  const setSections = p.sets.map((s, idx) => `
+    <section class="set ${idx > 0 ? 'new-page' : ''}">
+      <div class="head">
+        <h1>${esc(state.settings.instituteName)} - ${esc(p.examMeta?.examName || 'Question Paper')}</h1>
+        <div class="meta">Set: ${esc(s.setName)} | Type: ${esc(p.examMeta?.examType || 'Standard')} | Time: ${esc(p.examMeta?.examTime || '3 Hours')} | Full Marks: ${esc(p.examMeta?.fullMarks || '100')}</div>
+        <div class="meta">Generated: ${esc(p.createdAt)}</div>
+      </div>
+      <ol>${s.questions.map(q => `<li>${esc(q.question)}<ul>${Object.entries(q.shuffledOptions).map(([k,v]) => `<li>${k}. ${esc(v)}</li>`).join('')}</ul></li>`).join('')}</ol>
+    </section>
+  `).join('');
+
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(p.examMeta?.examName || 'Question Paper')}</title>
   <style>
     body{font-family:Arial,sans-serif;padding:24px;color:#111} h1,h2,h3{margin:8px 0} .meta{margin:4px 0 12px 0}
-    .set{page-break-inside:avoid} .head{border-bottom:2px solid #222;padding-bottom:8px;margin-bottom:12px}
+    .set{page-break-inside:avoid} .new-page{page-break-before:always} .head{border-bottom:2px solid #222;padding-bottom:8px;margin-bottom:12px}
+    @media print { .new-page{break-before:page; page-break-before:always} }
   </style></head><body>
-  <div class="head">
-    <h1>${esc(state.settings.instituteName)} - ${esc(p.examMeta?.examName || 'Question Paper')}</h1>
-    <div class="meta">Type: ${esc(p.examMeta?.examType || 'Standard')} | Time: ${esc(p.examMeta?.examTime || '3 Hours')} | Full Marks: ${esc(p.examMeta?.fullMarks || '100')}</div>
-    <div class="meta">${esc(p.filters.board)} / ${esc(p.filters.class)} / ${esc(p.filters.subject)} / ${esc(p.filters.chapter)}</div>
-    <div class="meta">Generated: ${esc(p.createdAt)}</div>
-  </div>
-
-  ${p.sets.map(s => `<div class="set"><h2>Set ${esc(s.setName)}</h2><ol>${s.questions.map(q => `<li>${esc(q.question)}<ul>${Object.entries(q.shuffledOptions).map(([k,v]) => `<li>${k}. ${esc(v)}</li>`).join('')}</ul></li>`).join('')}</ol></div><hr>`).join('')}
-  <h2>Creative Questions</h2><ol>${p.creative.map(q => `<li>${esc(q.question)} (${q.marks} marks)</li>`).join('')}</ol>
-  <h2>Answer Sheet</h2>${p.sets.map(s => `<p>Set ${esc(s.setName)}: ${esc(s.key)}</p>`).join('')}<ol>${p.creative.map(q => `<li>${esc(q.solution)}</li>`).join('')}</ol>
+  ${setSections}
+  <section class="new-page">
+    <h2>Creative Questions</h2><ol>${p.creative.map(q => `<li>${esc(q.question)} (${q.marks} marks)</li>`).join('')}</ol>
+    <h2>Answer Sheet</h2>${p.sets.map(s => `<p>Set ${esc(s.setName)}: ${esc(s.key)}</p>`).join('')}<ol>${p.creative.map(q => `<li>${esc(q.solution)}</li>`).join('')}</ol>
+  </section>
   <script>window.onload=()=>{setTimeout(()=>{window.print();},150)};<\/script>
   </body></html>`;
 
