@@ -371,6 +371,10 @@ function renderPaperGenerator(){
   g('paper-generator').innerHTML = `
     <h2 class="text-2xl font-bold mb-4">Question & Solution Maker</h2>
     <form class="bg-white p-4 rounded-xl shadow grid md:grid-cols-4 gap-3 text-sm" onsubmit="event.preventDefault();generatePaper()">
+      <label>Exam Name<input id="pg-exam-name" value="Board Exam Model Test" class="w-full border p-2 rounded"></label>
+      <label>Exam Type<input id="pg-exam-type" value="Board Standard" class="w-full border p-2 rounded"></label>
+      <label>Exam Time<input id="pg-exam-time" value="3 Hours" class="w-full border p-2 rounded"></label>
+      <label>Full Marks<input id="pg-full-marks" type="number" value="100" class="w-full border p-2 rounded"></label>
       <label>Board<select id="pg-board" class="w-full border p-2 rounded" onchange="syncGeneratorCurriculum()">${boards.map(v=>`<option ${v===cur.board?'selected':''}>${v}</option>`).join('')}</select></label>
       <label>Class<select id="pg-class" class="w-full border p-2 rounded" onchange="syncGeneratorCurriculum()">${classes.map(v=>`<option ${v===cur.class?'selected':''}>${v}</option>`).join('')}</select></label>
       <label>Subject<select id="pg-subject" class="w-full border p-2 rounded" onchange="syncGeneratorCurriculum()"></select></label>
@@ -398,38 +402,71 @@ function generatePaper(){
     chapter: g('pg-chapter').value,
     distribution: g('pg-distribution').value
   };
+  const examMeta = {
+    examName: g('pg-exam-name').value.trim() || 'Model Test',
+    examType: g('pg-exam-type').value.trim() || 'Standard',
+    examTime: g('pg-exam-time').value.trim() || '3 Hours',
+    fullMarks: g('pg-full-marks').value || '100'
+  };
+
   const mcq = pickQuestions(filters, +g('pg-mcq').value, 'MCQ');
   const creative = pickQuestions(filters, +g('pg-creative').value, 'Creative');
   const sets = g('pg-sets').value.split(',').map(s => s.trim()).filter(Boolean);
 
-  const paper = { id: uid(), createdAt: new Date().toLocaleString(), filters, mcq, creative, sets: [] };
+  const paper = { id: uid(), createdAt: new Date().toLocaleString(), filters, examMeta, mcq, creative, sets: [] };
   sets.forEach(setName => {
-    const sq = shuffle(mcq).map(q => ({ ...q, shuffledOptions: Object.fromEntries(shuffle(Object.entries(q.options || {}))) }));
-    paper.sets.push({ setName, questions: sq, key: sq.map((q,i)=>`${i+1}. ${q.correct}`).join(', ') });
+    const sq = shuffle(mcq).map(q => {
+      const shuffledOptions = Object.fromEntries(shuffle(Object.entries(q.options || {})));
+      const correctText = (q.options || {})[q.correct];
+      const mappedCorrect = Object.entries(shuffledOptions).find(([, val]) => val === correctText)?.[0] || q.correct;
+      return { ...q, shuffledOptions, mappedCorrect };
+    });
+    paper.sets.push({ setName, questions: sq, key: sq.map((q,i)=>`${i+1}. ${q.mappedCorrect}`).join(', ') });
   });
 
   state.generatedPapers.unshift(paper);
   save();
   renderGeneratedPapers();
 
-  g('paper-preview').innerHTML = `<div class='bg-white p-4 rounded shadow'><h3 class='font-semibold'>Generated: ${paper.createdAt}</h3><p>${paper.filters.board} / ${paper.filters.class} / ${paper.filters.subject} / ${paper.filters.chapter}</p><p>MCQ: ${mcq.length}, Creative: ${creative.length}, Sets: ${sets.join(', ')}</p><button onclick="printPaper('${paper.id}')" class="mt-2 px-3 py-2 bg-emerald-700 text-white rounded">Export PDF / Print</button></div>`;
+  g('paper-preview').innerHTML = `<div class='bg-white p-4 rounded shadow'><h3 class='font-semibold'>Generated: ${paper.createdAt}</h3><p><b>${esc(paper.examMeta.examName)}</b> · ${esc(paper.examMeta.examType)} · Time: ${esc(paper.examMeta.examTime)} · Marks: ${esc(paper.examMeta.fullMarks)}</p><p>${paper.filters.board} / ${paper.filters.class} / ${paper.filters.subject} / ${paper.filters.chapter}</p><p>MCQ: ${mcq.length}, Creative: ${creative.length}, Sets: ${sets.join(', ')}</p><button onclick="printPaper('${paper.id}')" class="mt-2 px-3 py-2 bg-emerald-700 text-white rounded">Export PDF / Print</button></div>`;
 }
 
 function printPaper(id){
   const p = state.generatedPapers.find(x => x.id === id); if (!p) return;
-  const w = window.open('');
-  w.document.write(`<h1>${esc(state.settings.instituteName)} - Question Paper</h1><p>${p.createdAt}</p><p>${p.filters.board} / ${p.filters.class} / ${p.filters.subject} / ${p.filters.chapter}</p>`);
-  p.sets.forEach(s => w.document.write(`<h2>Set ${esc(s.setName)}</h2><ol>${s.questions.map(q => `<li>${esc(q.question)}<ul>${Object.entries(q.shuffledOptions).map(([k,v]) => `<li>${k}. ${esc(v)}</li>`).join('')}</ul></li>`).join('')}</ol><hr>`));
-  w.document.write(`<h2>Creative</h2><ol>${p.creative.map(q => `<li>${esc(q.question)} (${q.marks} marks)</li>`).join('')}</ol>`);
-  w.document.write(`<h2>Answer Sheet</h2>${p.sets.map(s => `<p>Set ${esc(s.setName)}: ${esc(s.key)}</p>`).join('')}<ol>${p.creative.map(q => `<li>${esc(q.solution)}</li>`).join('')}</ol>`);
-  w.print();
-  w.close();
+  const w = window.open('', '_blank');
+  if (!w) {
+    alert('Popup blocked. Please allow popups for printing.');
+    return;
+  }
+
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(p.examMeta?.examName || 'Question Paper')}</title>
+  <style>
+    body{font-family:Arial,sans-serif;padding:24px;color:#111} h1,h2,h3{margin:8px 0} .meta{margin:4px 0 12px 0}
+    .set{page-break-inside:avoid} .head{border-bottom:2px solid #222;padding-bottom:8px;margin-bottom:12px}
+  </style></head><body>
+  <div class="head">
+    <h1>${esc(state.settings.instituteName)} - ${esc(p.examMeta?.examName || 'Question Paper')}</h1>
+    <div class="meta">Type: ${esc(p.examMeta?.examType || 'Standard')} | Time: ${esc(p.examMeta?.examTime || '3 Hours')} | Full Marks: ${esc(p.examMeta?.fullMarks || '100')}</div>
+    <div class="meta">${esc(p.filters.board)} / ${esc(p.filters.class)} / ${esc(p.filters.subject)} / ${esc(p.filters.chapter)}</div>
+    <div class="meta">Generated: ${esc(p.createdAt)}</div>
+  </div>
+
+  ${p.sets.map(s => `<div class="set"><h2>Set ${esc(s.setName)}</h2><ol>${s.questions.map(q => `<li>${esc(q.question)}<ul>${Object.entries(q.shuffledOptions).map(([k,v]) => `<li>${k}. ${esc(v)}</li>`).join('')}</ul></li>`).join('')}</ol></div><hr>`).join('')}
+  <h2>Creative Questions</h2><ol>${p.creative.map(q => `<li>${esc(q.question)} (${q.marks} marks)</li>`).join('')}</ol>
+  <h2>Answer Sheet</h2>${p.sets.map(s => `<p>Set ${esc(s.setName)}: ${esc(s.key)}</p>`).join('')}<ol>${p.creative.map(q => `<li>${esc(q.solution)}</li>`).join('')}</ol>
+  <script>window.onload=()=>{setTimeout(()=>{window.print();},150)};<\/script>
+  </body></html>`;
+
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.focus();
 }
 
 function renderGeneratedPapers(){
   g('generated-papers').innerHTML = `
     <h2 class="text-2xl font-bold mb-4">Generated Papers</h2>
-    <div class="space-y-3">${state.generatedPapers.map(p => `<div class='bg-white p-4 rounded shadow text-sm'><p><b>${p.createdAt}</b> · ${esc(p.filters.board)}/${esc(p.filters.class)}/${esc(p.filters.subject)}/${esc(p.filters.chapter)}</p><p>MCQ ${p.mcq.length}, Creative ${p.creative.length}, Sets ${p.sets.map(s=>esc(s.setName)).join(', ')}</p><button onclick="printPaper('${p.id}')" class="mt-2 px-3 py-2 bg-indigo-700 text-white rounded">Download PDF (Print)</button></div>`).join('') || '<p>No generated papers yet.</p>'}</div>`;
+    <div class="space-y-3">${state.generatedPapers.map(p => `<div class='bg-white p-4 rounded shadow text-sm'><p><b>${p.createdAt}</b> · ${esc(p.filters.board)}/${esc(p.filters.class)}/${esc(p.filters.subject)}/${esc(p.filters.chapter)}</p><p><b>${esc(p.examMeta?.examName || 'Model Test')}</b> · ${esc(p.examMeta?.examType || 'Standard')} · ${esc(p.examMeta?.examTime || '3 Hours')} · Marks ${esc(p.examMeta?.fullMarks || '100')}</p><p>MCQ ${p.mcq.length}, Creative ${p.creative.length}, Sets ${p.sets.map(s=>esc(s.setName)).join(', ')}</p><button onclick="printPaper('${p.id}')" class="mt-2 px-3 py-2 bg-indigo-700 text-white rounded">Download PDF (Print)</button></div>`).join('') || '<p>No generated papers yet.</p>'}</div>`;
 }
 
 function renderSettings(){
