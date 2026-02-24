@@ -520,13 +520,13 @@ function printPaper(id){
         <h1>${esc(state.settings.instituteName)} - ${esc(p.examMeta?.examName || 'Question Paper')}</h1>
         <div class="meta">Set: ${esc(s.setName)} | Type: ${esc(p.examMeta?.examType || 'Standard')} | Time: ${esc(p.examMeta?.examTime || '3 Hours')} | Full Marks: ${esc(p.examMeta?.fullMarks || '100')}</div>
       </div>
-      <ol class="question-two-col">${s.questions.map(q => `<li>${esc(q.question)}<ul>${Object.entries(q.shuffledOptions).map(([k,v]) => `<li>${k}. ${esc(v)}</li>`).join('')}</ul></li>`).join('')}</ol>
+      <ol class="question-two-col">${s.questions.map(q => `<li>${esc(q.question)}<ol type="A" class="option-list">${['A','B','C','D'].map(k => `<li>${esc((q.shuffledOptions || {})[k] || '')}</li>`).join('')}</ol></li>`).join('')}</ol>
     </section>
   `).join('');
 
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(p.examMeta?.examName || 'Question Paper')}</title>
   <style>
-    body{font-family:Arial,sans-serif;padding:24px;color:#111} h1,h2,h3{margin:8px 0} .meta{margin:6px 0 0 0;font-weight:700}\n    .set{page-break-inside:avoid;border:2px solid #111;border-radius:12px;padding:16px;margin:8px 0 12px 0;background:#fff} .new-page{page-break-before:always} .head{border-bottom:2px solid #222;padding-bottom:10px;margin-bottom:12px;text-align:center} .head h1{font-weight:800} .set li{font-weight:700;line-height:1.55} .question-two-col{column-count:2;column-gap:28px;padding-left:20px} .question-two-col>li{break-inside:avoid;margin-bottom:10px} .question-two-col ul{padding-left:18px}
+    body{font-family:Arial,sans-serif;padding:24px;color:#111} h1,h2,h3{margin:8px 0} .meta{margin:6px 0 0 0;font-weight:700}\n    .set{page-break-inside:avoid;border:2px solid #111;border-radius:12px;padding:16px;margin:8px 0 12px 0;background:#fff} .new-page{page-break-before:always} .head{border-bottom:2px solid #222;padding-bottom:10px;margin-bottom:12px;text-align:center} .head h1{font-weight:800} .set li{font-weight:700;line-height:1.55} .question-two-col{column-count:2;column-gap:28px;padding-left:20px} .question-two-col>li{break-inside:avoid;margin-bottom:10px} .question-two-col ul{padding-left:18px} .option-list{margin-top:6px;padding-left:22px} .option-list li{font-weight:600;list-style-type:upper-alpha}
     @media print { .new-page{break-before:page; page-break-before:always} }
   </style></head><body>
   ${setSections}
