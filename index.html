@@ -59,6 +59,27 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 const esc = (s='') => String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const shuffle = arr => [...arr].sort(() => Math.random() - 0.5);
 
+function shuffleArray(arr){
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function resolveCorrectLabel(q){
+  const raw = String(q?.correct || '').trim().toUpperCase();
+  if (['A','B','C','D'].includes(raw)) return raw;
+
+  const labels = ['A','B','C','D'];
+  const rawText = String(q?.correct || '').trim();
+  for (const label of labels) {
+    if (String(q?.options?.[label] ?? '').trim() === rawText) return label;
+  }
+  return 'A';
+}
+
 function normalize(str){ return (str || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
 
 function ensureCurriculumSelection(){
@@ -480,11 +501,11 @@ function generatePaper(){
 
   const paper = { id: uid(), createdAt: new Date().toLocaleString(), filters, examMeta, mcq, creative, sets: [] };
   sets.forEach(setName => {
-    const sq = shuffle(mcq).map(q => {
+    const sq = shuffleArray(mcq).map(q => {
       const labels = ['A', 'B', 'C', 'D'];
-      const originalCorrect = String(q.correct || 'A').trim().toUpperCase();
+      const originalCorrect = resolveCorrectLabel(q);
       const originalEntries = labels.map(label => ({ label, value: (q.options || {})[label] ?? '' }));
-      const shuffledEntries = shuffle(originalEntries);
+      const shuffledEntries = shuffleArray(originalEntries);
 
       const shuffledOptions = { A:'', B:'', C:'', D:'' };
       let mappedCorrect = 'A';
