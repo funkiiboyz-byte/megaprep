@@ -340,6 +340,8 @@ function renderQuestionBank(){
       <select id="qb-type" onchange="renderQuestionBank()" class="border p-2 rounded"><option value="">All Type</option><option ${by.type==='MCQ'?'selected':''}>MCQ</option><option ${by.type==='Creative'?'selected':''}>Creative</option></select>
       <select id="qb-difficulty" onchange="renderQuestionBank()" class="border p-2 rounded"><option value="">All Difficulty</option><option ${by.difficulty==='Easy'?'selected':''}>Easy</option><option ${by.difficulty==='Medium'?'selected':''}>Medium</option><option ${by.difficulty==='Hard'?'selected':''}>Hard</option></select>
       <input id="qb-keyword" oninput="renderQuestionBank()" placeholder="Search keyword" class="border p-2 rounded" value="${esc(by.keyword)}">
+      <button onclick="exportQuestions()" class="px-3 py-2 bg-emerald-700 text-white rounded">Export Questions</button>
+      <label class="px-3 py-2 bg-amber-600 text-white rounded text-center cursor-pointer">Import Questions<input id="qb-import-file" type="file" accept="application/json" class="hidden" onchange="importQuestions(event)"></label>
       <button onclick="deleteBulk()" class="md:col-span-7 px-3 py-2 bg-rose-700 text-white rounded">Delete Selected</button>
     </div>
     <div class="bg-white p-4 rounded-xl shadow overflow-auto">
@@ -355,6 +357,54 @@ function toggleAll(v){ document.querySelectorAll('.bulk').forEach(c => c.checked
 function delQuestion(id){ if (confirm('Delete this question?')) { state.questions = state.questions.filter(q => q.id !== id); save(); renderQuestionBank(); } }
 function deleteBulk(){ const ids = [...document.querySelectorAll('.bulk:checked')].map(c => c.value); state.questions = state.questions.filter(q => !ids.includes(q.id)); save(); renderQuestionBank(); }
 function editQuestion(id){ const q = state.questions.find(x => x.id===id); const txt = prompt('Edit question text:', q.question); if(!txt) return; q.question = txt; save(); renderQuestionBank(); }
+
+function exportQuestions(){
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    version: 1,
+    questions: state.questions
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `megaprep-question-bank-${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}
+
+function importQuestions(event){
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const raw = JSON.parse(reader.result);
+      const items = Array.isArray(raw) ? raw : (Array.isArray(raw.questions) ? raw.questions : []);
+      if (!items.length) return alert('No valid questions found in file.');
+
+      let added = 0;
+      items.forEach(it => {
+        if (!it || !it.question || !it.type || !it.curriculum) return;
+        const exists = state.questions.some(q => normalize(q.question) === normalize(it.question) && q.type === it.type && q.curriculum.class === it.curriculum.class && q.curriculum.subject === it.curriculum.subject);
+        if (exists) return;
+        const item = { ...it, id: uid() };
+        state.questions.push(item);
+        added += 1;
+      });
+
+      save();
+      renderQuestionBank();
+      alert(`${added} questions imported successfully.`);
+    } catch (e) {
+      alert('Invalid JSON file.');
+    } finally {
+      if (g('qb-import-file')) g('qb-import-file').value = '';
+    }
+  };
+  reader.readAsText(file);
+}
 
 function pickQuestions(filters, count, type){
   const pool = state.questions.filter(q => q.type===type && q.curriculum.board===filters.board && q.curriculum.class===filters.class && q.curriculum.subject===filters.subject && q.curriculum.chapter===filters.chapter);
@@ -445,13 +495,13 @@ function printPaper(id){
         <h1>${esc(state.settings.instituteName)} - ${esc(p.examMeta?.examName || 'Question Paper')}</h1>
         <div class="meta">Set: ${esc(s.setName)} | Type: ${esc(p.examMeta?.examType || 'Standard')} | Time: ${esc(p.examMeta?.examTime || '3 Hours')} | Full Marks: ${esc(p.examMeta?.fullMarks || '100')}</div>
       </div>
-      <ol>${s.questions.map(q => `<li>${esc(q.question)}<ul>${Object.entries(q.shuffledOptions).map(([k,v]) => `<li>${k}. ${esc(v)}</li>`).join('')}</ul></li>`).join('')}</ol>
+      <ol class="question-two-col">${s.questions.map(q => `<li>${esc(q.question)}<ul>${Object.entries(q.shuffledOptions).map(([k,v]) => `<li>${k}. ${esc(v)}</li>`).join('')}</ul></li>`).join('')}</ol>
     </section>
   `).join('');
 
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(p.examMeta?.examName || 'Question Paper')}</title>
   <style>
-    body{font-family:Arial,sans-serif;padding:24px;color:#111} h1,h2,h3{margin:8px 0} .meta{margin:6px 0 0 0;font-weight:700}\n    .set{page-break-inside:avoid;border:2px solid #111;border-radius:12px;padding:16px;margin:8px 0 12px 0;background:#fff} .new-page{page-break-before:always} .head{border-bottom:2px solid #222;padding-bottom:10px;margin-bottom:12px;text-align:center} .head h1{font-weight:800} .set li{font-weight:700;line-height:1.55}
+    body{font-family:Arial,sans-serif;padding:24px;color:#111} h1,h2,h3{margin:8px 0} .meta{margin:6px 0 0 0;font-weight:700}\n    .set{page-break-inside:avoid;border:2px solid #111;border-radius:12px;padding:16px;margin:8px 0 12px 0;background:#fff} .new-page{page-break-before:always} .head{border-bottom:2px solid #222;padding-bottom:10px;margin-bottom:12px;text-align:center} .head h1{font-weight:800} .set li{font-weight:700;line-height:1.55} .question-two-col{column-count:2;column-gap:28px;padding-left:20px} .question-two-col>li{break-inside:avoid;margin-bottom:10px} .question-two-col ul{padding-left:18px}
     @media print { .new-page{break-before:page; page-break-before:always} }
   </style></head><body>
   ${setSections}
