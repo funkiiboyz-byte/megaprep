@@ -481,15 +481,18 @@ function generatePaper(){
   const paper = { id: uid(), createdAt: new Date().toLocaleString(), filters, examMeta, mcq, creative, sets: [] };
   sets.forEach(setName => {
     const sq = shuffle(mcq).map(q => {
-      const optionValues = shuffle(Object.values(q.options || {}).filter(Boolean));
       const labels = ['A', 'B', 'C', 'D'];
-      const shuffledOptions = {};
-      labels.forEach((label, idx) => {
-        shuffledOptions[label] = optionValues[idx] ?? '';
-      });
+      const originalEntries = labels.map(label => ({ label, value: (q.options || {})[label] ?? '' }));
+      const shuffledEntries = shuffle(originalEntries);
 
-      const correctText = (q.options || {})[q.correct];
-      const mappedCorrect = labels.find(label => shuffledOptions[label] === correctText) || 'A';
+      const shuffledOptions = {};
+      let mappedCorrect = 'A';
+
+      labels.forEach((newLabel, idx) => {
+        const entry = shuffledEntries[idx] || { label: newLabel, value: '' };
+        shuffledOptions[newLabel] = entry.value;
+        if (entry.label === q.correct) mappedCorrect = newLabel;
+      });
 
       return { ...q, shuffledOptions, mappedCorrect };
     });
