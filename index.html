@@ -740,32 +740,78 @@ function downloadOMRTemplate(){
 }
 
 function renderResult(){
+  const paperOptions = state.generatedPapers.map((p, idx) => `<option value="${p.id}" ${idx===0?'selected':''}>${esc(p.examMeta?.examName || 'Model Test')} · ${esc(p.createdAt)}</option>`).join('');
+  const firstPaper = state.generatedPapers[0];
+  const setOptions = firstPaper ? firstPaper.sets.map((s, idx) => `<option value="${s.setName}" ${idx===0?'selected':''}>Set ${esc(s.setName)}</option>`).join('') : '';
+
   g('result').innerHTML = `
     <h2 class="text-2xl font-bold mb-4">Result (OMR Image Upload)</h2>
     <div class="bg-white p-4 rounded-xl shadow space-y-3 text-sm">
-      <p>Upload filled OMR image and provide answer key format: <b>1:A,2:C,3:D</b></p>
+      <p>Smart answer key selection: Generated Paper থেকে Set বাছাই করলে key auto-fill হবে, না হলে manual key দিন।</p>
+      <div class="grid md:grid-cols-3 gap-3">
+        <label>Generated Paper<select id="res-paper" class="w-full border p-2 rounded" onchange="refreshResultSetOptions()"><option value="">Manual Only</option>${paperOptions}</select></label>
+        <label>Set<select id="res-set" class="w-full border p-2 rounded" onchange="applySelectedAnswerKey()"><option value="">Select Set</option>${setOptions}</select></label>
+        <button onclick="applySelectedAnswerKey()" class="px-4 py-2 bg-cyan-700 text-white rounded">Load Key From Set</button>
+      </div>
       <label>Answer Key<textarea id="res-key" class="w-full border p-2 rounded" rows="3" placeholder="1:A,2:C,3:D"></textarea></label>
       <label>OMR Image<input id="res-image" type="file" accept="image/*" class="w-full border p-2 rounded"></label>
       <button onclick="analyzeOMRResult()" class="px-4 py-2 bg-indigo-700 text-white rounded">Analyze Result</button>
       <div id="res-output" class="text-sm"></div>
     </div>`;
+
+  if (firstPaper) applySelectedAnswerKey();
+}
+
+function refreshResultSetOptions(){
+  const paperId = g('res-paper')?.value;
+  const setSel = g('res-set');
+  if (!setSel) return;
+  if (!paperId) {
+    setSel.innerHTML = '<option value="">Select Set</option>';
+    return;
+  }
+  const p = state.generatedPapers.find(x => x.id === paperId);
+  if (!p) {
+    setSel.innerHTML = '<option value="">Select Set</option>';
+    return;
+  }
+  setSel.innerHTML = `<option value="">Select Set</option>${p.sets.map((s, idx) => `<option value="${s.setName}" ${idx===0?'selected':''}>Set ${esc(s.setName)}</option>`).join('')}`;
+  applySelectedAnswerKey();
+}
+
+function applySelectedAnswerKey(){
+  const paperId = g('res-paper')?.value;
+  const setName = g('res-set')?.value;
+  if (!paperId || !setName) return;
+  const p = state.generatedPapers.find(x => x.id === paperId);
+  const st = p?.sets?.find(x => x.setName === setName);
+  if (!st || !g('res-key')) return;
+  g('res-key').value = st.key.replace(/\s+/g,'');
 }
 
 function parseAnswerKey(text){
   const map = {};
-  text.split(',').forEach(part => {
-    const [q,a] = part.split(':').map(x => x?.trim());
+  String(text || '').split(',').forEach(part => {
+    const [qRaw, aRaw] = part.split(':').map(x => (x || '').trim());
+    const q = parseInt((qRaw || '').replace(/[^0-9]/g, ''), 10);
+    const a = (aRaw || '').toUpperCase().replace(/[^A-D]/g, '');
     if (!q || !a) return;
-    map[+q] = a.toUpperCase();
+    map[q] = a;
   });
   return map;
 }
 
 async function analyzeOMRResult(){
   const file = g('res-image').files?.[0];
+  if (!file) return alert('Please upload OMR image.');
+
+  if (!g('res-key').value.trim()) {
+    applySelectedAnswerKey();
+  }
+
   const keyMap = parseAnswerKey(g('res-key').value);
   const totalQ = Object.keys(keyMap).length || state.omrConfig.totalQuestions;
-  if (!file) return alert('Please upload OMR image.');
+  if (!Object.keys(keyMap).length) return alert('Please provide answer key (manual or load from set).');
 
   const img = await new Promise((resolve,reject)=>{const i=new Image(); i.onload=()=>resolve(i); i.onerror=reject; i.src=URL.createObjectURL(file);});
   const c = document.createElement('canvas');
@@ -789,9 +835,10 @@ async function analyzeOMRResult(){
 
   let correct=0;
   Object.keys(keyMap).forEach(q=>{ if ((picks[q]||'')===keyMap[q]) correct++; });
-  const total = Object.keys(keyMap).length || Object.keys(picks).length;
+  const total = Object.keys(keyMap).length;
   const wrong = Math.max(0,total-correct);
-  g('res-output').innerHTML = `<div class='bg-slate-100 rounded p-3'><p><b>Detected:</b> ${Object.entries(picks).map(([k,v])=>`${k}:${v}`).join(', ')}</p><p><b>Score:</b> ${correct}/${total} | Wrong: ${wrong}</p></div>`;
+  const pct = total ? ((correct/total)*100).toFixed(2) : '0.00';
+  g('res-output').innerHTML = `<div class='bg-slate-100 rounded p-3 space-y-1'><p><b>Detected:</b> ${Object.entries(picks).map(([k,v])=>`${k}:${v}`).join(', ')}</p><p><b>Score:</b> ${correct}/${total} | Wrong: ${wrong} | Accuracy: ${pct}%</p></div>`;
 }
 
 function renderSettings(){
