@@ -599,23 +599,30 @@ function renderStudents(){
   const grouped = classes.map(cls => ({ cls, list: state.students.filter(s => s.className === cls) }));
   g('students').innerHTML = `
     <h2 class="text-2xl font-bold mb-4">Student Management (Class-wise)</h2>
-    <div class="bg-white p-4 rounded-xl shadow mb-4 grid md:grid-cols-4 gap-3 text-sm">
+    <div class="bg-white p-4 rounded-xl shadow mb-4 grid md:grid-cols-8 gap-3 text-sm">
       <label>Class<select id="st-class" class="w-full border p-2 rounded">${classes.map(c=>`<option>${c}</option>`).join('')}</select></label>
       <label>Student Name<input id="st-name" class="w-full border p-2 rounded" placeholder="Student name"></label>
       <label>Roll<input id="st-roll" class="w-full border p-2 rounded" placeholder="Roll"></label>
+      <label>Student Number<input id="st-number" class="w-full border p-2 rounded" placeholder="Student number"></label>
+      <label>Guardian Number<input id="st-guardian" class="w-full border p-2 rounded" placeholder="Guardian mobile"></label>
       <button onclick="addStudent()" class="px-4 py-2 bg-cyan-700 text-white rounded">Add Student</button>
+      <button onclick="exportStudentsXLSX()" class="px-4 py-2 bg-emerald-700 text-white rounded">Export Students XLSX</button>
+      <label class="px-4 py-2 bg-amber-600 text-white rounded text-center cursor-pointer">Import Students XLSX<input id="st-import" type="file" accept=".xlsx,.xls" class="hidden" onchange="importStudentsXLSX(event)"></label>
     </div>
-    <div class="space-y-3">${grouped.map(gp => `<div class='bg-white p-4 rounded-xl shadow'><h3 class='font-semibold mb-2'>${gp.cls} (${gp.list.length})</h3><div class='text-sm space-y-1'>${gp.list.length?gp.list.map(st=>`<div class='flex justify-between border-b py-1'><span>${esc(st.roll)} - ${esc(st.name)}</span><button class='text-rose-700' onclick="removeStudent('${st.id}')">Delete</button></div>`).join(''):'<p class="text-slate-500">No students</p>'}</div></div>`).join('')}</div>`;
+    <p class="text-sm text-slate-600 mb-3">Upload/Export student list in Excel format with columns: Class, Name, Roll, StudentNumber, GuardianNumber.</p>
+    <div class="space-y-3">${grouped.map(gp => `<div class='bg-white p-4 rounded-xl shadow'><h3 class='font-semibold mb-2'>${gp.cls} (${gp.list.length})</h3><div class='text-sm space-y-1'>${gp.list.length?gp.list.map(st=>`<div class='grid grid-cols-12 gap-2 border-b py-1'><span class='col-span-3'>${esc(st.roll)} - ${esc(st.name)}</span><span class='col-span-3'>Student#: ${esc(st.studentNo || '-')}</span><span class='col-span-4'>Guardian: ${esc(st.guardianNo || '-')}</span><button class='col-span-2 text-rose-700 text-right' onclick="removeStudent('${st.id}')">Delete</button></div>`).join(''):'<p class="text-slate-500">No students</p>'}</div></div>`).join('')}</div>`;
 }
 
 function addStudent(){
   const className = g('st-class').value;
   const name = g('st-name').value.trim();
   const roll = g('st-roll').value.trim();
-  if (!name || !roll) return alert('Name and roll required.');
+  const studentNo = g('st-number').value.trim();
+  const guardianNo = g('st-guardian').value.trim();
+  if (!name || !roll || !studentNo || !guardianNo) return alert('Name, roll, student number and guardian number required.');
   const exists = state.students.some(s => s.className===className && normalize(s.roll)===normalize(roll));
   if (exists) return alert('This roll already exists in selected class.');
-  state.students.push({ id: uid(), className, name, roll });
+  state.students.push({ id: uid(), className, name, roll, studentNo, guardianNo });
   save();
   renderStudents();
 }
@@ -626,37 +633,109 @@ function removeStudent(id){
   renderStudents();
 }
 
+function exportStudentsXLSX(){
+  if (!window.XLSX) return alert('XLSX library not loaded.');
+  const rows = state.students.map(s => ({
+    Class: s.className || '',
+    Name: s.name || '',
+    Roll: s.roll || '',
+    StudentNumber: s.studentNo || '',
+    GuardianNumber: s.guardianNo || ''
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Note:'No students found' }]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Students');
+  XLSX.writeFile(wb, `students-${Date.now()}.xlsx`);
+}
+
+function importStudentsXLSX(event){
+  if (!window.XLSX) return alert('XLSX library not loaded.');
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try{
+      const wb = XLSX.read(e.target.result, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      let added = 0;
+      rows.forEach(r => {
+        const className = String(r.Class || r.class || '').trim();
+        const name = String(r.Name || r.name || '').trim();
+        const roll = String(r.Roll || r.roll || '').trim();
+        const studentNo = String(r.StudentNumber || r.studentNumber || r.StudentNo || '').trim();
+        const guardianNo = String(r.GuardianNumber || r.guardianNumber || r.GuardianNo || '').trim();
+        if (!className || !name || !roll) return;
+        const exists = state.students.some(s => s.className===className && normalize(s.roll)===normalize(roll));
+        if (exists) return;
+        state.students.push({ id: uid(), className, name, roll, studentNo, guardianNo });
+        added++;
+      });
+      save();
+      renderStudents();
+      alert(`${added} students imported.`);
+    }catch(err){
+      alert('Invalid XLSX file.');
+    }finally{
+      if (g('st-import')) g('st-import').value = '';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
 function renderOMR(){
   const cfg = state.omrConfig;
   g('omr').innerHTML = `
-    <h2 class="text-2xl font-bold mb-4">OMR Template</h2>
+    <h2 class="text-2xl font-bold mb-4">OMR Template (Board Style)</h2>
     <div class="bg-white p-4 rounded-xl shadow grid md:grid-cols-4 gap-3 text-sm">
       <label>Exam Name<input id="omr-exam" class="w-full border p-2 rounded" value="${esc(cfg.examName)}"></label>
       <label>Total Questions<input id="omr-total" type="number" min="5" max="200" class="w-full border p-2 rounded" value="${cfg.totalQuestions}"></label>
-      <label>Options per Question<select id="omr-options" class="w-full border p-2 rounded"><option ${cfg.optionsPerQuestion===4?'selected':''}>4</option></select></label>
-      <button onclick="downloadOMRTemplate()" class="px-4 py-2 bg-emerald-700 text-white rounded">Download OMR Template</button>
+      <label>Institute Name<input id="omr-inst" class="w-full border p-2 rounded" value="${esc(state.settings.instituteName)}"></label>
+      <button onclick="downloadOMRTemplate()" class="px-4 py-2 bg-emerald-700 text-white rounded">Download Board Style OMR</button>
     </div>
-    <p class="text-sm text-slate-600 mt-3">Template download will generate a printable HTML OMR sheet with A/B/C/D bubbles.</p>`;
+    <p class="text-sm text-slate-600 mt-3">Board style OMR with student info block, instruction line, and compact bubble grid (A/B/C/D).</p>`;
 }
 
 function downloadOMRTemplate(){
   const examName = g('omr-exam').value.trim() || 'Model Test';
   const total = Math.max(5, Math.min(200, +g('omr-total').value || 20));
-  const options = 4;
-  state.omrConfig = { examName, totalQuestions: total, optionsPerQuestion: options };
+  const institute = (g('omr-inst')?.value || state.settings.instituteName || 'MegaPrep').trim();
+  state.omrConfig = { examName, totalQuestions: total, optionsPerQuestion: 4 };
   save();
 
   let rows = '';
   for (let i = 1; i <= total; i++) {
-    rows += `<tr><td>${i}</td><td class='b'>A ⭕</td><td class='b'>B ⭕</td><td class='b'>C ⭕</td><td class='b'>D ⭕</td></tr>`;
+    rows += `<tr><td class='q'>${i}</td><td>○ A</td><td>○ B</td><td>○ C</td><td>○ D</td></tr>`;
   }
 
-  const html = `<!doctype html><html><head><meta charset='utf-8'><title>OMR Template</title><style>body{font-family:Arial;padding:24px}h1{text-align:center}table{width:100%;border-collapse:collapse}td,th{border:1px solid #222;padding:6px;text-align:center}.b{font-weight:700}@media print{@page{size:A4}}</style></head><body><h1>${esc(state.settings.instituteName)} - ${esc(examName)} OMR</h1><p>Name: __________________ Roll: __________ Class: __________</p><table><thead><tr><th>Q</th><th>A</th><th>B</th><th>C</th><th>D</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+  const html = `<!doctype html><html><head><meta charset='utf-8'><title>OMR Template</title>
+  <style>
+    body{font-family:Arial,sans-serif;padding:20px;color:#111} h1,h2,p{margin:4px 0}
+    .top{text-align:center;border:2px solid #111;padding:8px;margin-bottom:10px}
+    .meta{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;border:1px solid #111;padding:8px;margin-bottom:10px;font-size:12px}
+    .meta div{border-bottom:1px dotted #666;min-height:18px}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    th,td{border:1px solid #111;padding:6px;text-align:center}
+    .q{font-weight:700;background:#f3f4f6}
+    .inst{font-size:12px;margin-bottom:8px}
+    @media print{@page{size:A4;margin:10mm}}
+  </style></head><body>
+  <div class='top'>
+    <h1>${esc(institute)}</h1>
+    <h2>${esc(examName)} - OMR Sheet</h2>
+    <p class='inst'>Fill bubbles clearly with black pen. Do not tick/cross, shade the circle completely.</p>
+  </div>
+  <div class='meta'>
+    <div>Name:</div><div>Class:</div><div>Roll:</div><div>Student No:</div>
+    <div>Guardian No:</div><div>Exam Date:</div><div>Set:</div><div>Signature:</div>
+  </div>
+  <table><thead><tr><th>Q No</th><th>A</th><th>B</th><th>C</th><th>D</th></tr></thead><tbody>${rows}</tbody></table>
+  </body></html>`;
 
   const blob = new Blob([html], { type: 'text/html' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `omr-template-${Date.now()}.html`;
+  a.download = `board-style-omr-${Date.now()}.html`;
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
 }
 
