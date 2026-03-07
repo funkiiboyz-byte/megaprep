@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MegaPrep Smart Question Maker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] } };
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <div class="min-h-screen flex">
+    <aside class="w-72 bg-slate-900 text-slate-100 p-4 fixed h-screen overflow-y-auto">
+      <h1 class="text-xl font-bold mb-6">📘 MegaPrep Q-Maker</h1>
+      <nav id="menu" class="space-y-2 text-sm"></nav>
+    </aside>
+
+    <main class="ml-72 w-[calc(100%-18rem)] p-6 space-y-6">
+      <section id="dashboard" class="page"></section>
+      <section id="curriculum" class="page hidden"></section>
+      <section id="question-input" class="page hidden"></section>
+      <section id="question-bank" class="page hidden"></section>
+      <section id="paper-generator" class="page hidden"></section>
+      <section id="generated-papers" class="page hidden"></section>
+      <section id="students" class="page hidden"></section>
+      <section id="omr" class="page hidden"></section>
+      <section id="result" class="page hidden"></section>
+      <section id="settings" class="page hidden"></section>
+    </main>
+  </div>
+
+<script>
+const APP_KEY = 'megaprep-smart-question-maker-v2';
+const roles = ['Admin', 'Teacher', 'Viewer'];
+const classes = ['Class 6', 'Class 7', 'Class 8', 'Class 9-10', 'Class 11-12', 'Admission'];
+const boards = ['NCTB', 'Admission', 'English Version'];
+const menuItems = [
+  ['dashboard','Dashboard'], ['curriculum','Curriculum'], ['question-input','Question Input'],
+  ['question-bank','Question Bank'], ['paper-generator','Paper Generator'], ['generated-papers','Generated Papers'], ['students','Students'], ['omr','OMR'], ['result','Result'], ['settings','Settings']
+];
+
+const defaultCatalog = [
+  { board:'NCTB', class:'Class 6', subject:'Mathematics', chapter:'Chapter 1' },
+  { board:'NCTB', class:'Class 6', subject:'Mathematics', chapter:'Chapter 2' },
+  { board:'NCTB', class:'Class 6', subject:'Science', chapter:'Chapter 1' }
+];
+
+let state = JSON.parse(localStorage.getItem(APP_KEY) || 'null') || {
+  curriculum: { board:'NCTB', class:'Class 6', subject:'Mathematics', chapter:'Chapter 1' },
+  curriculumCatalog: defaultCatalog,
+  questions: [],
+  generatedPapers: [],
+  students: [],
+  omrConfig: { examName:'Model Test', totalQuestions:20, optionsPerQuestion:4 },
+  settings: { instituteName: 'MegaPrep', logo: '', rolesEnabled: true }
+};
+state.students = Array.isArray(state.students) ? state.students : [];
+state.omrConfig = state.omrConfig || { examName:'Model Test', totalQuestions:20, optionsPerQuestion:4 };
+
+const g = id => document.getElementById(id);
+const save = () => localStorage.setItem(APP_KEY, JSON.stringify(state));
+const uid = () => Math.random().toString(36).slice(2, 10);
+const esc = (s='') => String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const shuffle = arr => [...arr].sort(() => Math.random() - 0.5);
+
+function shuffleArray(arr){
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function resolveCorrectLabel(q){
+  const raw = String(q?.correct || '').trim().toUpperCase();
+  if (['A','B','C','D'].includes(raw)) return raw;
+
+  const labels = ['A','B','C','D'];
+  const rawText = String(q?.correct || '').trim();
+  for (const label of labels) {
+    if (String(q?.options?.[label] ?? '').trim() === rawText) return label;
+  }
+  return 'A';
+}
+
+function normalize(str){ return (str || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+
+function ensureCurriculumSelection(){
+  const { board, class: cls } = state.curriculum;
+  const subjects = [...new Set(state.curriculumCatalog.filter(x => x.board === board && x.class === cls).map(x => x.subject))];
+  if (!subjects.length) {
+    state.curriculum = { board:'NCTB', class:'Class 6', subject:'Mathematics', chapter:'Chapter 1' };
+    if (!state.curriculumCatalog.length) state.curriculumCatalog = [...defaultCatalog];
+    return;
+  }
+  if (!subjects.includes(state.curriculum.subject)) state.curriculum.subject = subjects[0];
+  const chapters = [...new Set(state.curriculumCatalog.filter(x => x.board === board && x.class === cls && x.subject === state.curriculum.subject).map(x => x.chapter))];
+  if (!chapters.includes(state.curriculum.chapter)) state.curriculum.chapter = chapters[0] || 'Chapter 1';
+}
+
+function getSubjects(board, cls){
+  return [...new Set(state.curriculumCatalog.filter(x => x.board === board && x.class === cls).map(x => x.subject))];
+}
+
+function getChapters(board, cls, subject){
+  return [...new Set(state.curriculumCatalog.filter(x => x.board === board && x.class === cls && x.subject === subject).map(x => x.chapter))];
+}
+
+function setCurriculum(board, cls, subject, chapter){
+  state.curriculum = { board, class: cls, subject, chapter };
+  ensureCurriculumSelection();
+  save();
+  render();
+}
+
+function mountMenu(){
+  g('menu').innerHTML = menuItems.map(([id, label], i) =>
+    `<button onclick="showPage('${id}')" class="w-full text-left p-2 rounded ${i===0?'bg-cyan-700':''} hover:bg-slate-700" data-menu="${id}">${label}</button>`
+  ).join('');
+}
+
+function showPage(id){
+  document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+  g(id).classList.remove('hidden');
+  document.querySelectorAll('[data-menu]').forEach(b => b.classList.remove('bg-cyan-700'));
+  document.querySelector(`[data-menu='${id}']`)?.classList.add('bg-cyan-700');
+  render();
+}
+
+function card(title, val){
+  return `<div class="bg-white p-4 rounded-xl shadow"><p class="text-sm text-slate-500">${title}</p><h3 class="text-2xl font-bold">${val}</h3></div>`;
+}
+
+function renderDashboard(){
+  const recent = [...state.questions].slice(-5).reverse();
+  g('dashboard').innerHTML = `
+    <h2 class="text-2xl font-bold mb-4">Smart Question Maker Dashboard</h2>
+    <div class="grid md:grid-cols-3 gap-4 mb-6">
+      ${card('Total Questions', state.questions.length)}
+      ${card('Total MCQ', state.questions.filter(q => q.type === 'MCQ').length)}
+      ${card('Total Creative', state.questions.filter(q => q.type === 'Creative').length)}
+      ${classes.map(c => card(c, state.questions.filter(q => q.curriculum.class === c).length)).join('')}
+      ${card('Generated Papers', state.generatedPapers.length)}
+    </div>
+    <div class="flex flex-wrap gap-3 mb-6">
+      <button onclick="showPage('question-input')" class="px-4 py-2 bg-cyan-700 text-white rounded">Add Question</button>
+      <button onclick="showPage('paper-generator')" class="px-4 py-2 bg-indigo-700 text-white rounded">Generate Question Paper</button>
+      <button onclick="showPage('question-bank')" class="px-4 py-2 bg-emerald-700 text-white rounded">View Question Bank</button>
+    </div>
+    <div class="bg-white rounded-xl shadow p-4">
+      <h3 class="font-semibold mb-2">Recently Added Questions</h3>
+      <ul class="space-y-2 text-sm">${recent.length ? recent.map(r => `<li class="border rounded p-2">${r.type} · ${esc(r.curriculum.class)} · ${esc(r.curriculum.subject)} · ${esc(r.question)}</li>`).join('') : '<li>No questions yet.</li>'}</ul>
+    </div>`;
+}
+
+function renderCurriculum(){
+  const cur = state.curriculum;
+  const subjectOptions = getSubjects(cur.board, cur.class);
+  const chapterOptions = getChapters(cur.board, cur.class, cur.subject);
+
+  g('curriculum').innerHTML = `
+    <h2 class="text-2xl font-bold mb-4">Curriculum Management</h2>
+    <div class="bg-white p-4 rounded-xl shadow space-y-4">
+      <div class="grid md:grid-cols-4 gap-3">
+        <label class="text-sm">Board
+          <select id="cur-board" class="w-full border p-2 rounded" onchange="onCurriculumBaseChange()">${boards.map(v => `<option ${v===cur.board?'selected':''}>${v}</option>`).join('')}</select>
+        </label>
+        <label class="text-sm">Class
+          <select id="cur-class" class="w-full border p-2 rounded" onchange="onCurriculumBaseChange()">${classes.map(v => `<option ${v===cur.class?'selected':''}>${v}</option>`).join('')}</select>
+        </label>
+        <label class="text-sm">Subject
+          <select id="cur-subject" class="w-full border p-2 rounded" onchange="onCurriculumSubjectChange()">${subjectOptions.map(v => `<option ${v===cur.subject?'selected':''}>${esc(v)}</option>`).join('')}</select>
+        </label>
+        <label class="text-sm">Chapter
+          <select id="cur-chapter" class="w-full border p-2 rounded">${chapterOptions.map(v => `<option ${v===cur.chapter?'selected':''}>${esc(v)}</option>`).join('')}</select>
+        </label>
+      </div>
+      <button onclick="saveCurriculumSelection()" class="px-4 py-2 bg-cyan-700 text-white rounded">Use This Curriculum</button>
+
+      <div class="border-t pt-4">
+        <h3 class="font-semibold mb-2">Add Curriculum Item</h3>
+        <p class="text-sm text-slate-600 mb-2">নতুন Board/Class/Subject/Chapter যোগ করলে তা Question Input, Question Bank filter, Paper Generator - সব জায়গায় সাথে সাথে আপডেট হবে।</p>
+        <div class="grid md:grid-cols-4 gap-3">
+          <label class="text-sm">Board<input id="new-board" class="w-full border p-2 rounded" value="${esc(cur.board)}"></label>
+          <label class="text-sm">Class<input id="new-class" class="w-full border p-2 rounded" value="${esc(cur.class)}"></label>
+          <label class="text-sm">Subject<input id="new-subject" class="w-full border p-2 rounded" placeholder="e.g. Physics"></label>
+          <label class="text-sm">Chapter<input id="new-chapter" class="w-full border p-2 rounded" placeholder="e.g. Chapter 3"></label>
+        </div>
+        <button onclick="addCurriculumItem()" class="mt-3 px-4 py-2 bg-emerald-700 text-white rounded">Add Curriculum</button>
+      </div>
+
+      <div class="border-t pt-4">
+        <h3 class="font-semibold mb-2">Curriculum List</h3>
+        <div class="max-h-56 overflow-auto text-sm">
+          <table class="w-full"><thead><tr class="border-b text-left"><th>Board</th><th>Class</th><th>Subject</th><th>Chapter</th></tr></thead>
+            <tbody>${state.curriculumCatalog.map(c => `<tr class="border-b"><td>${esc(c.board)}</td><td>${esc(c.class)}</td><td>${esc(c.subject)}</td><td>${esc(c.chapter)}</td></tr>`).join('')}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+}
+
+function onCurriculumBaseChange(){
+  const board = g('cur-board').value;
+  const cls = g('cur-class').value;
+  const subjects = getSubjects(board, cls);
+  const subject = subjects[0] || '';
+  const chapters = getChapters(board, cls, subject);
+  const chapter = chapters[0] || '';
+  state.curriculum = { board, class: cls, subject, chapter };
+  save();
+  renderCurriculum();
+}
+
+function onCurriculumSubjectChange(){
+  const board = g('cur-board').value;
+  const cls = g('cur-class').value;
+  const subject = g('cur-subject').value;
+  const chapters = getChapters(board, cls, subject);
+  state.curriculum = { board, class: cls, subject, chapter: chapters[0] || '' };
+  save();
+  renderCurriculum();
+}
+
+function saveCurriculumSelection(){
+  setCurriculum(g('cur-board').value, g('cur-class').value, g('cur-subject').value, g('cur-chapter').value);
+  alert('Curriculum selected and synced everywhere.');
+}
+
+function addCurriculumItem(){
+  const item = {
+    board: g('new-board').value.trim(),
+    class: g('new-class').value.trim(),
+    subject: g('new-subject').value.trim(),
+    chapter: g('new-chapter').value.trim()
+  };
+  if (!item.board || !item.class || !item.subject || !item.chapter) return alert('সব ফিল্ড পূরণ করুন।');
+
+  const exists = state.curriculumCatalog.some(x => normalize(x.board)===normalize(item.board) && normalize(x.class)===normalize(item.class) && normalize(x.subject)===normalize(item.subject) && normalize(x.chapter)===normalize(item.chapter));
+  if (exists) return alert('এই curriculum item আগেই আছে।');
+
+  state.curriculumCatalog.push(item);
+  state.curriculumCatalog = state.curriculumCatalog.sort((a,b) => `${a.board}${a.class}${a.subject}${a.chapter}`.localeCompare(`${b.board}${b.class}${b.subject}${b.chapter}`));
+  setCurriculum(item.board, item.class, item.subject, item.chapter);
+}
+
+function renderQuestionInput(){
+  const cur = state.curriculum;
+  g('question-input').innerHTML = `
+    <h2 class="text-2xl font-bold mb-4">Question Input</h2>
+    <div class="bg-white p-4 rounded-xl shadow mb-4 grid md:grid-cols-4 gap-3 text-sm">
+      <label>Board<select id="qi-board" class="w-full border p-2 rounded" onchange="syncInputCurriculum()">${boards.map(v=>`<option ${v===cur.board?'selected':''}>${v}</option>`).join('')}</select></label>
+      <label>Class<select id="qi-class" class="w-full border p-2 rounded" onchange="syncInputCurriculum()">${classes.map(v=>`<option ${v===cur.class?'selected':''}>${v}</option>`).join('')}</select></label>
+      <label>Subject<select id="qi-subject" class="w-full border p-2 rounded" onchange="syncInputCurriculum()"></select></label>
+      <label>Chapter<select id="qi-chapter" class="w-full border p-2 rounded" onchange="syncInputCurriculum()"></select></label>
+    </div>
+
+    <div class="grid lg:grid-cols-2 gap-4">
+      <form class="bg-white p-4 rounded-xl shadow space-y-2" onsubmit="event.preventDefault();addQuestion('MCQ')">
+        <h3 class="font-semibold">MCQ Section</h3>
+        <label class='block text-sm'>Question (LaTeX supported)<textarea id='mcq-question' class='w-full border p-2 rounded' rows='2' required></textarea></label>
+        <label class='block text-sm'>Option A<input id='mcq-a' class='w-full border p-2 rounded' required></label>
+        <label class='block text-sm'>Option B<input id='mcq-b' class='w-full border p-2 rounded' required></label>
+        <label class='block text-sm'>Option C<input id='mcq-c' class='w-full border p-2 rounded' required></label>
+        <label class='block text-sm'>Option D<input id='mcq-d' class='w-full border p-2 rounded' required></label>
+        <label class='block text-sm'>Correct Answer<select id='mcq-correct' class='w-full border p-2 rounded'><option>A</option><option>B</option><option>C</option><option>D</option></select></label>
+        <label class='block text-sm'>Solution (LaTeX supported)<textarea id='mcq-solution' class='w-full border p-2 rounded' rows='2' required></textarea></label>
+        <label class='block text-sm'>Difficulty<select id='mcq-difficulty' class='w-full border p-2 rounded'><option>Easy</option><option>Medium</option><option>Hard</option></select></label>
+        <button class="px-3 py-2 bg-cyan-700 text-white rounded">Save MCQ</button>
+      </form>
+
+      <form class="bg-white p-4 rounded-xl shadow space-y-2" onsubmit="event.preventDefault();addQuestion('Creative')">
+        <h3 class="font-semibold">Creative Section</h3>
+        <label class='block text-sm'>Question (LaTeX supported)<textarea id='cr-question' class='w-full border p-2 rounded' rows='2' required></textarea></label>
+        <label class='block text-sm'>Step-by-step Solution<textarea id='cr-solution' class='w-full border p-2 rounded' rows='2' required></textarea></label>
+        <label class='block text-sm'>Marks<input id='cr-marks' type='number' value='5' class='w-full border p-2 rounded' required></label>
+        <label class='block text-sm'>Difficulty<select id='cr-difficulty' class='w-full border p-2 rounded'><option>Easy</option><option>Medium</option><option>Hard</option></select></label>
+        <button class="px-3 py-2 bg-indigo-700 text-white rounded">Save Creative</button>
+      </form>
+    </div>`;
+
+  hydrateCurriculumSelectors('qi', cur);
+}
+
+function hydrateCurriculumSelectors(prefix, cur){
+  const board = g(`${prefix}-board`).value || cur.board;
+  const cls = g(`${prefix}-class`).value || cur.class;
+  const subjects = getSubjects(board, cls);
+  const subject = subjects.includes(cur.subject) ? cur.subject : (subjects[0] || '');
+  g(`${prefix}-subject`).innerHTML = subjects.map(v => `<option ${v===subject?'selected':''}>${esc(v)}</option>`).join('');
+
+  const chapters = getChapters(board, cls, subject);
+  const chapter = chapters.includes(cur.chapter) ? cur.chapter : (chapters[0] || '');
+  g(`${prefix}-chapter`).innerHTML = chapters.map(v => `<option ${v===chapter?'selected':''}>${esc(v)}</option>`).join('');
+
+  state.curriculum = { board, class: cls, subject, chapter };
+  save();
+}
+
+function syncInputCurriculum(){
+  hydrateCurriculumSelectors('qi', state.curriculum);
+  state.curriculum = {
+    board: g('qi-board').value,
+    class: g('qi-class').value,
+    subject: g('qi-subject').value,
+    chapter: g('qi-chapter').value
+  };
+  save();
+  render();
+}
+
+function addQuestion(type){
+  const cur = { ...state.curriculum };
+  let q;
+  if (type === 'MCQ') {
+    q = {
+      id: uid(), type, curriculum: cur, question: g('mcq-question').value,
+      options: { A:g('mcq-a').value, B:g('mcq-b').value, C:g('mcq-c').value, D:g('mcq-d').value },
+      correct: g('mcq-correct').value, solution: g('mcq-solution').value, difficulty: g('mcq-difficulty').value
+    };
+  } else {
+    q = {
+      id: uid(), type, curriculum: cur, question: g('cr-question').value,
+      solution: g('cr-solution').value, marks: +g('cr-marks').value, difficulty: g('cr-difficulty').value
+    };
+  }
+
+  const dup = state.questions.find(x => normalize(x.question) === normalize(q.question) && x.curriculum.class === q.curriculum.class && x.curriculum.subject === q.curriculum.subject);
+  if (dup && !confirm('Possible duplicate found. Save anyway?')) return;
+
+  state.questions.push(q);
+  save();
+  render();
+  alert(`${type} saved to question bank.`);
+}
+
+function renderQuestionBank(){
+  const by = {
+    board: g('qb-board')?.value || '',
+    class: g('qb-class')?.value || '',
+    subject: g('qb-subject')?.value || '',
+    chapter: g('qb-chapter')?.value || '',
+    type: g('qb-type')?.value || '',
+    difficulty: g('qb-difficulty')?.value || '',
+    keyword: (g('qb-keyword')?.value || '').toLowerCase()
+  };
+
+  const list = state.questions.filter(q =>
+    (!by.board || q.curriculum.board === by.board) &&
+    (!by.class || q.curriculum.class === by.class) &&
+    (!by.subject || q.curriculum.subject === by.subject) &&
+    (!by.chapter || q.curriculum.chapter === by.chapter) &&
+    (!by.type || q.type === by.type) &&
+    (!by.difficulty || q.difficulty === by.difficulty) &&
+    (!by.keyword || JSON.stringify(q).toLowerCase().includes(by.keyword))
+  );
+
+  g('question-bank').innerHTML = `
+    <h2 class="text-2xl font-bold mb-4">Question Bank</h2>
+    <div class="bg-white p-4 rounded-xl shadow mb-3 grid md:grid-cols-7 gap-2 text-sm">
+      <select id="qb-board" onchange="renderQuestionBank()" class="border p-2 rounded"><option value="">All Board</option>${boards.map(c=>`<option ${by.board===c?'selected':''}>${c}</option>`).join('')}</select>
+      <select id="qb-class" onchange="renderQuestionBank()" class="border p-2 rounded"><option value="">All Class</option>${classes.map(c=>`<option ${by.class===c?'selected':''}>${c}</option>`).join('')}</select>
+      <input id="qb-subject" oninput="renderQuestionBank()" placeholder="Subject (exact)" class="border p-2 rounded" value="${esc(by.subject)}">
+      <input id="qb-chapter" oninput="renderQuestionBank()" placeholder="Chapter (exact)" class="border p-2 rounded" value="${esc(by.chapter)}">
+      <select id="qb-type" onchange="renderQuestionBank()" class="border p-2 rounded"><option value="">All Type</option><option ${by.type==='MCQ'?'selected':''}>MCQ</option><option ${by.type==='Creative'?'selected':''}>Creative</option></select>
+      <select id="qb-difficulty" onchange="renderQuestionBank()" class="border p-2 rounded"><option value="">All Difficulty</option><option ${by.difficulty==='Easy'?'selected':''}>Easy</option><option ${by.difficulty==='Medium'?'selected':''}>Medium</option><option ${by.difficulty==='Hard'?'selected':''}>Hard</option></select>
+      <input id="qb-keyword" oninput="renderQuestionBank()" placeholder="Search keyword" class="border p-2 rounded" value="${esc(by.keyword)}">
+      <button onclick="exportQuestions()" class="px-3 py-2 bg-emerald-700 text-white rounded">Export Questions</button>
+      <label class="px-3 py-2 bg-amber-600 text-white rounded text-center cursor-pointer">Import Questions<input id="qb-import-file" type="file" accept="application/json" class="hidden" onchange="importQuestions(event)"></label>
+      <button onclick="deleteBulk()" class="md:col-span-7 px-3 py-2 bg-rose-700 text-white rounded">Delete Selected</button>
+    </div>
+    <div class="bg-white p-4 rounded-xl shadow overflow-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-left border-b"><th><input type="checkbox" onclick="toggleAll(this.checked)"></th><th>Type</th><th>Curriculum</th><th>Question</th><th>Difficulty</th><th>Action</th></tr></thead>
+        <tbody>${list.map(q => `<tr class="border-b align-top"><td><input type="checkbox" class="bulk" value="${q.id}"></td><td>${q.type}</td><td>${esc(q.curriculum.board)}<br>${esc(q.curriculum.class)}<br>${esc(q.curriculum.subject)}<br>${esc(q.curriculum.chapter)}</td><td>${esc(q.question)}</td><td>${q.difficulty}</td><td><button onclick="editQuestion('${q.id}')" class="text-blue-700">Edit</button> | <button onclick="delQuestion('${q.id}')" class="text-rose-700">Delete</button></td></tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+  MathJax.typeset();
+}
+
+function toggleAll(v){ document.querySelectorAll('.bulk').forEach(c => c.checked = v); }
+function delQuestion(id){ if (confirm('Delete this question?')) { state.questions = state.questions.filter(q => q.id !== id); save(); renderQuestionBank(); } }
+function deleteBulk(){ const ids = [...document.querySelectorAll('.bulk:checked')].map(c => c.value); state.questions = state.questions.filter(q => !ids.includes(q.id)); save(); renderQuestionBank(); }
+function editQuestion(id){ const q = state.questions.find(x => x.id===id); const txt = prompt('Edit question text:', q.question); if(!txt) return; q.question = txt; save(); renderQuestionBank(); }
+
+function exportQuestions(){
+  if (!window.XLSX) {
+    alert('XLSX library failed to load. Please check internet connection and try again.');
+    return;
+  }
+
+  const rows = state.questions.map(q => ({
+    ID: q.id,
+    Type: q.type,
+    Board: q.curriculum?.board || '',
+    Class: q.curriculum?.class || '',
+    Subject: q.curriculum?.subject || '',
+    Chapter: q.curriculum?.chapter || '',
+    Question: q.question || '',
+    OptionA: q.options?.A || '',
+    OptionB: q.options?.B || '',
+    OptionC: q.options?.C || '',
+    OptionD: q.options?.D || '',
+    Correct: q.correct || '',
+    Solution: q.solution || '',
+    Marks: q.marks ?? '',
+    Difficulty: q.difficulty || ''
+  }));
+
+  const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Note: 'No questions found' }]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'QuestionBank');
+  XLSX.writeFile(wb, `megaprep-question-bank-${Date.now()}.xlsx`);
+}
+
+function importQuestions(event){
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const raw = JSON.parse(reader.result);
+      const items = Array.isArray(raw) ? raw : (Array.isArray(raw.questions) ? raw.questions : []);
+      if (!items.length) return alert('No valid questions found in file.');
+
+      let added = 0;
+      items.forEach(it => {
+        if (!it || !it.question || !it.type || !it.curriculum) return;
+        const exists = state.questions.some(q => normalize(q.question) === normalize(it.question) && q.type === it.type && q.curriculum.class === it.curriculum.class && q.curriculum.subject === it.curriculum.subject);
+        if (exists) return;
+        const item = { ...it, id: uid() };
+        state.questions.push(item);
+        added += 1;
+      });
+
+      save();
+      renderQuestionBank();
+      alert(`${added} questions imported successfully.`);
+    } catch (e) {
+      alert('Invalid JSON file.');
+    } finally {
+      if (g('qb-import-file')) g('qb-import-file').value = '';
+    }
+  };
+  reader.readAsText(file);
+}
+
+function pickQuestions(filters, count, type){
+  const pool = state.questions.filter(q => q.type===type && q.curriculum.board===filters.board && q.curriculum.class===filters.class && q.curriculum.subject===filters.subject && q.curriculum.chapter===filters.chapter);
+  if (filters.distribution) {
+    const [e,m,h] = filters.distribution.split(',').map(n => +n || 0);
+    const take = (lvl,n) => shuffle(pool.filter(x => x.difficulty===lvl)).slice(0,n);
+    return [...take('Easy',e), ...take('Medium',m), ...take('Hard',h)].slice(0, count);
+  }
+  return shuffle(pool).slice(0, count);
+}
+
+function renderPaperGenerator(){
+  const cur = state.curriculum;
+  g('paper-generator').innerHTML = `
+    <h2 class="text-2xl font-bold mb-4">Question & Solution Maker</h2>
+    <form class="bg-white p-4 rounded-xl shadow grid md:grid-cols-4 gap-3 text-sm" onsubmit="event.preventDefault();generatePaper()">
+      <label>Exam Name<input id="pg-exam-name" value="Board Exam Model Test" class="w-full border p-2 rounded"></label>
+      <label>Exam Type<input id="pg-exam-type" value="Board Standard" class="w-full border p-2 rounded"></label>
+      <label>Exam Time<input id="pg-exam-time" value="3 Hours" class="w-full border p-2 rounded"></label>
+      <label>Full Marks<input id="pg-full-marks" type="number" value="100" class="w-full border p-2 rounded"></label>
+      <label>Board<select id="pg-board" class="w-full border p-2 rounded" onchange="syncGeneratorCurriculum()">${boards.map(v=>`<option ${v===cur.board?'selected':''}>${v}</option>`).join('')}</select></label>
+      <label>Class<select id="pg-class" class="w-full border p-2 rounded" onchange="syncGeneratorCurriculum()">${classes.map(v=>`<option ${v===cur.class?'selected':''}>${v}</option>`).join('')}</select></label>
+      <label>Subject<select id="pg-subject" class="w-full border p-2 rounded" onchange="syncGeneratorCurriculum()"></select></label>
+      <label>Chapter<select id="pg-chapter" class="w-full border p-2 rounded"></select></label>
+      <label>Total MCQ number<input id="pg-mcq" type="number" value="10" class="w-full border p-2 rounded"></label>
+      <label>Total Creative number<input id="pg-creative" type="number" value="2" class="w-full border p-2 rounded"></label>
+      <label>Difficulty distribution<input id="pg-distribution" placeholder="e.g. 4,4,2" class="w-full border p-2 rounded"></label>
+      <label>MCQ Multiple Sets<input id="pg-sets" value="A,B,C,D" class="w-full border p-2 rounded"></label>
+      <button class="md:col-span-4 px-4 py-2 bg-cyan-700 text-white rounded">Generate Paper</button>
+    </form>
+    <div id="paper-preview" class="mt-4"></div>`;
+
+  hydrateCurriculumSelectors('pg', cur);
+}
+
+function syncGeneratorCurriculum(){
+  hydrateCurriculumSelectors('pg', state.curriculum);
+}
+
+function generatePaper(){
+  const filters = {
+    board: g('pg-board').value,
+    class: g('pg-class').value,
+    subject: g('pg-subject').value,
+    chapter: g('pg-chapter').value,
+    distribution: g('pg-distribution').value
+  };
+  const examMeta = {
+    examName: g('pg-exam-name').value.trim() || 'Model Test',
+    examType: g('pg-exam-type').value.trim() || 'Standard',
+    examTime: g('pg-exam-time').value.trim() || '3 Hours',
+    fullMarks: g('pg-full-marks').value || '100'
+  };
+
+  const mcq = pickQuestions(filters, +g('pg-mcq').value, 'MCQ');
+  const creative = pickQuestions(filters, +g('pg-creative').value, 'Creative');
+  const sets = g('pg-sets').value.split(',').map(s => s.trim()).filter(Boolean);
+
+  const paper = { id: uid(), createdAt: new Date().toLocaleString(), filters, examMeta, mcq, creative, sets: [] };
+  sets.forEach(setName => {
+    const sq = shuffleArray(mcq).map(q => {
+      const labels = ['A', 'B', 'C', 'D'];
+      const originalCorrect = resolveCorrectLabel(q);
+      const originalEntries = labels.map(label => ({ label, value: (q.options || {})[label] ?? '' }));
+      const shuffledEntries = shuffleArray(originalEntries);
+
+      const shuffledOptions = { A:'', B:'', C:'', D:'' };
+      let mappedCorrect = 'A';
+
+      labels.forEach((newLabel, idx) => {
+        const entry = shuffledEntries[idx] || { label: newLabel, value: '' };
+        shuffledOptions[newLabel] = entry.value;
+        if (entry.label === originalCorrect) mappedCorrect = newLabel;
+      });
+
+      return {
+        ...q,
+        shuffledOptions,
+        mappedCorrect,
+        optionOrder: labels
+      };
+    });
+
+    paper.sets.push({
+      setName,
+      questions: sq,
+      key: sq.map((item, idx) => `${idx + 1}. ${item.mappedCorrect}`).join(', ')
+    });
+  });
+
+  state.generatedPapers.unshift(paper);
+  save();
+  renderGeneratedPapers();
+
+  g('paper-preview').innerHTML = `<div class='bg-white p-4 rounded shadow'><h3 class='font-semibold'>Generated: ${paper.createdAt}</h3><p><b>${esc(paper.examMeta.examName)}</b> · ${esc(paper.examMeta.examType)} · Time: ${esc(paper.examMeta.examTime)} · Marks: ${esc(paper.examMeta.fullMarks)}</p><p>${paper.filters.board} / ${paper.filters.class} / ${paper.filters.subject} / ${paper.filters.chapter}</p><p>MCQ: ${mcq.length}, Creative: ${creative.length}, Sets: ${sets.join(', ')}</p><button onclick="printPaper('${paper.id}')" class="mt-2 px-3 py-2 bg-emerald-700 text-white rounded">Export PDF / Print</button></div>`;
+}
+
+function printPaper(id){
+  const p = state.generatedPapers.find(x => x.id === id); if (!p) return;
+  const w = window.open('', '_blank');
+  if (!w) {
+    alert('Popup blocked. Please allow popups for printing.');
+    return;
+  }
+
+  const setSections = p.sets.map((s, idx) => `
+    <section class="set ${idx > 0 ? 'new-page' : ''}">
+      <div class="head">
+        <h1>${esc(state.settings.instituteName)} - ${esc(p.examMeta?.examName || 'Question Paper')}</h1>
+        <div class="meta">Set: ${esc(s.setName)} | Type: ${esc(p.examMeta?.examType || 'Standard')} | Time: ${esc(p.examMeta?.examTime || '3 Hours')} | Full Marks: ${esc(p.examMeta?.fullMarks || '100')}</div>
+      </div>
+      <ol class="question-two-col">${s.questions.map(q => `<li>${esc(q.question)}<ol type="A" class="option-list">${['A','B','C','D'].map(k => `<li>${esc((q.shuffledOptions || {})[k] || '')}</li>`).join('')}</ol></li>`).join('')}</ol>
+    </section>
+  `).join('');
+
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(p.examMeta?.examName || 'Question Paper')}</title>
+  <style>
+    body{font-family:Arial,sans-serif;padding:24px;color:#111} h1,h2,h3{margin:8px 0} .meta{margin:6px 0 0 0;font-weight:700}\n    .set{page-break-inside:avoid;border:2px solid #111;border-radius:12px;padding:16px;margin:8px 0 12px 0;background:#fff} .new-page{page-break-before:always} .head{border-bottom:2px solid #222;padding-bottom:10px;margin-bottom:12px;text-align:center} .head h1{font-weight:800} .set li{font-weight:700;line-height:1.55} .question-two-col{column-count:2;column-gap:28px;padding-left:20px} .question-two-col>li{break-inside:avoid;margin-bottom:10px} .question-two-col ul{padding-left:18px} .option-list{margin-top:6px;padding-left:22px} .option-list li{font-weight:600;list-style-type:upper-alpha}
+    @media print { .new-page{break-before:page; page-break-before:always} }
+  </style></head><body>
+  ${setSections}
+  <section class="new-page">
+    <h2>Creative Questions</h2><ol>${p.creative.map(q => `<li>${esc(q.question)} (${q.marks} marks)</li>`).join('')}</ol>
+    <h2>Answer Sheet</h2>${p.sets.map(s => `<p>Set ${esc(s.setName)}: ${esc(s.key)}</p>`).join('')}<ol>${p.creative.map(q => `<li>${esc(q.solution)}</li>`).join('')}</ol>
+  </section>
+  <script>window.onload=()=>{setTimeout(()=>{window.print();},150)};<\/script>
+  </body></html>`;
+
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+}
+
+function renderGeneratedPapers(){
+  g('generated-papers').innerHTML = `
+    <h2 class="text-2xl font-bold mb-4">Generated Papers</h2>
+    <div class="space-y-3">${state.generatedPapers.map(p => `<div class='bg-white p-4 rounded shadow text-sm'><p><b>${p.createdAt}</b> · ${esc(p.filters.board)}/${esc(p.filters.class)}/${esc(p.filters.subject)}/${esc(p.filters.chapter)}</p><p><b>${esc(p.examMeta?.examName || 'Model Test')}</b> · ${esc(p.examMeta?.examType || 'Standard')} · ${esc(p.examMeta?.examTime || '3 Hours')} · Marks ${esc(p.examMeta?.fullMarks || '100')}</p><p>MCQ ${p.mcq.length}, Creative ${p.creative.length}, Sets ${p.sets.map(s=>esc(s.setName)).join(', ')}</p><button onclick="printPaper('${p.id}')" class="mt-2 px-3 py-2 bg-indigo-700 text-white rounded">Download PDF (Print)</button></div>`).join('') || '<p>No generated papers yet.</p>'}</div>`;
+}
+
+function renderStudents(){
+  const grouped = classes.map(cls => ({ cls, list: state.students.filter(s => s.className === cls) }));
+  g('students').innerHTML = `
+    <h2 class="text-2xl font-bold mb-4">Student Management (Class-wise)</h2>
+    <div class="bg-white p-4 rounded-xl shadow mb-4 grid md:grid-cols-4 gap-3 text-sm">
+      <label>Class<select id="st-class" class="w-full border p-2 rounded">${classes.map(c=>`<option>${c}</option>`).join('')}</select></label>
+      <label>Student Name<input id="st-name" class="w-full border p-2 rounded" placeholder="Student name"></label>
+      <label>Roll<input id="st-roll" class="w-full border p-2 rounded" placeholder="Roll"></label>
+      <button onclick="addStudent()" class="px-4 py-2 bg-cyan-700 text-white rounded">Add Student</button>
+    </div>
+    <div class="space-y-3">${grouped.map(gp => `<div class='bg-white p-4 rounded-xl shadow'><h3 class='font-semibold mb-2'>${gp.cls} (${gp.list.length})</h3><div class='text-sm space-y-1'>${gp.list.length?gp.list.map(st=>`<div class='flex justify-between border-b py-1'><span>${esc(st.roll)} - ${esc(st.name)}</span><button class='text-rose-700' onclick="removeStudent('${st.id}')">Delete</button></div>`).join(''):'<p class="text-slate-500">No students</p>'}</div></div>`).join('')}</div>`;
+}
+
+function addStudent(){
+  const className = g('st-class').value;
+  const name = g('st-name').value.trim();
+  const roll = g('st-roll').value.trim();
+  if (!name || !roll) return alert('Name and roll required.');
+  const exists = state.students.some(s => s.className===className && normalize(s.roll)===normalize(roll));
+  if (exists) return alert('This roll already exists in selected class.');
+  state.students.push({ id: uid(), className, name, roll });
+  save();
+  renderStudents();
+}
+
+function removeStudent(id){
+  state.students = state.students.filter(s => s.id !== id);
+  save();
+  renderStudents();
+}
+
+function renderOMR(){
+  const cfg = state.omrConfig;
+  g('omr').innerHTML = `
+    <h2 class="text-2xl font-bold mb-4">OMR Template</h2>
+    <div class="bg-white p-4 rounded-xl shadow grid md:grid-cols-4 gap-3 text-sm">
+      <label>Exam Name<input id="omr-exam" class="w-full border p-2 rounded" value="${esc(cfg.examName)}"></label>
+      <label>Total Questions<input id="omr-total" type="number" min="5" max="200" class="w-full border p-2 rounded" value="${cfg.totalQuestions}"></label>
+      <label>Options per Question<select id="omr-options" class="w-full border p-2 rounded"><option ${cfg.optionsPerQuestion===4?'selected':''}>4</option></select></label>
+      <button onclick="downloadOMRTemplate()" class="px-4 py-2 bg-emerald-700 text-white rounded">Download OMR Template</button>
+    </div>
+    <p class="text-sm text-slate-600 mt-3">Template download will generate a printable HTML OMR sheet with A/B/C/D bubbles.</p>`;
+}
+
+function downloadOMRTemplate(){
+  const examName = g('omr-exam').value.trim() || 'Model Test';
+  const total = Math.max(5, Math.min(200, +g('omr-total').value || 20));
+  const options = 4;
+  state.omrConfig = { examName, totalQuestions: total, optionsPerQuestion: options };
+  save();
+
+  let rows = '';
+  for (let i = 1; i <= total; i++) {
+    rows += `<tr><td>${i}</td><td class='b'>A ⭕</td><td class='b'>B ⭕</td><td class='b'>C ⭕</td><td class='b'>D ⭕</td></tr>`;
+  }
+
+  const html = `<!doctype html><html><head><meta charset='utf-8'><title>OMR Template</title><style>body{font-family:Arial;padding:24px}h1{text-align:center}table{width:100%;border-collapse:collapse}td,th{border:1px solid #222;padding:6px;text-align:center}.b{font-weight:700}@media print{@page{size:A4}}</style></head><body><h1>${esc(state.settings.instituteName)} - ${esc(examName)} OMR</h1><p>Name: __________________ Roll: __________ Class: __________</p><table><thead><tr><th>Q</th><th>A</th><th>B</th><th>C</th><th>D</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `omr-template-${Date.now()}.html`;
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+}
+
+function renderResult(){
+  g('result').innerHTML = `
+    <h2 class="text-2xl font-bold mb-4">Result (OMR Image Upload)</h2>
+    <div class="bg-white p-4 rounded-xl shadow space-y-3 text-sm">
+      <p>Upload filled OMR image and provide answer key format: <b>1:A,2:C,3:D</b></p>
+      <label>Answer Key<textarea id="res-key" class="w-full border p-2 rounded" rows="3" placeholder="1:A,2:C,3:D"></textarea></label>
+      <label>OMR Image<input id="res-image" type="file" accept="image/*" class="w-full border p-2 rounded"></label>
+      <button onclick="analyzeOMRResult()" class="px-4 py-2 bg-indigo-700 text-white rounded">Analyze Result</button>
+      <div id="res-output" class="text-sm"></div>
+    </div>`;
+}
+
+function parseAnswerKey(text){
+  const map = {};
+  text.split(',').forEach(part => {
+    const [q,a] = part.split(':').map(x => x?.trim());
+    if (!q || !a) return;
+    map[+q] = a.toUpperCase();
+  });
+  return map;
+}
+
+async function analyzeOMRResult(){
+  const file = g('res-image').files?.[0];
+  const keyMap = parseAnswerKey(g('res-key').value);
+  const totalQ = Object.keys(keyMap).length || state.omrConfig.totalQuestions;
+  if (!file) return alert('Please upload OMR image.');
+
+  const img = await new Promise((resolve,reject)=>{const i=new Image(); i.onload=()=>resolve(i); i.onerror=reject; i.src=URL.createObjectURL(file);});
+  const c = document.createElement('canvas');
+  c.width = img.width; c.height = img.height;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img,0,0);
+
+  const labels=['A','B','C','D'];
+  const picks = {};
+  for(let q=1;q<=Math.min(totalQ, state.omrConfig.totalQuestions);q++){
+    const y = Math.round((q+2) * (img.height/(state.omrConfig.totalQuestions+4)));
+    let minVal=1e12, pick='A';
+    labels.forEach((lb,idx)=>{
+      const x = Math.round((idx+1.5)*(img.width/6));
+      const data = ctx.getImageData(Math.max(0,x-10),Math.max(0,y-10),20,20).data;
+      let sum=0; for(let i=0;i<data.length;i+=4){sum += data[i]+data[i+1]+data[i+2];}
+      if(sum<minVal){minVal=sum; pick=lb;}
+    });
+    picks[q]=pick;
+  }
+
+  let correct=0;
+  Object.keys(keyMap).forEach(q=>{ if ((picks[q]||'')===keyMap[q]) correct++; });
+  const total = Object.keys(keyMap).length || Object.keys(picks).length;
+  const wrong = Math.max(0,total-correct);
+  g('res-output').innerHTML = `<div class='bg-slate-100 rounded p-3'><p><b>Detected:</b> ${Object.entries(picks).map(([k,v])=>`${k}:${v}`).join(', ')}</p><p><b>Score:</b> ${correct}/${total} | Wrong: ${wrong}</p></div>`;
+}
+
+function renderSettings(){
+  g('settings').innerHTML = `
+    <h2 class="text-2xl font-bold mb-4">Settings</h2>
+    <div class="bg-white p-4 rounded-xl shadow grid md:grid-cols-2 gap-3 text-sm">
+      <label>Institute Name<input id="st-institute" class="w-full border p-2 rounded" value="${esc(state.settings.instituteName)}"></label>
+      <label>Logo URL<input id="st-logo" class="w-full border p-2 rounded" value="${esc(state.settings.logo)}"></label>
+      <label>Enable Roles<select id="st-roles" class="w-full border p-2 rounded"><option value="true" ${state.settings.rolesEnabled?'selected':''}>Yes</option><option value="false" ${!state.settings.rolesEnabled?'selected':''}>No</option></select></label>
+      <label>User Role<select id="st-role" class="w-full border p-2 rounded">${roles.map(r=>`<option>${r}</option>`).join('')}</select></label>
+      <button onclick="saveSettings()" class="md:col-span-2 px-4 py-2 bg-cyan-700 text-white rounded">Save Settings</button>
+    </div>`;
+}
+
+function saveSettings(){
+  state.settings.instituteName = g('st-institute').value;
+  state.settings.logo = g('st-logo').value;
+  state.settings.rolesEnabled = g('st-roles').value === 'true';
+  save();
+  render();
+}
+
+function render(){
+  ensureCurriculumSelection();
+  renderDashboard();
+  renderCurriculum();
+  renderQuestionInput();
+  renderQuestionBank();
+  renderPaperGenerator();
+  renderGeneratedPapers();
+  renderStudents();
+  renderOMR();
+  renderResult();
+  renderSettings();
+  MathJax.typeset();
+}
+
+mountMenu();
+render();
+showPage('dashboard');
+</script>
+</body>
+</html>
