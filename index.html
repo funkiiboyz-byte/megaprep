@@ -893,9 +893,18 @@ function render(){
   typesetMath();
 }
 
-mountMenu();
-render();
-showPage('dashboard');
+function bootApp(){
+  try {
+    mountMenu();
+    render();
+    showPage('dashboard');
+  } catch (err) {
+    console.error('Boot failure:', err);
+    document.body.innerHTML = `<div style="font-family:Arial,sans-serif;padding:24px;color:#111"><h1>App failed to load</h1><p>Please refresh the page. If the issue persists, clear browser storage for this site.</p><pre style="white-space:pre-wrap;background:#f3f4f6;padding:12px;border-radius:8px">${esc(err?.stack || err?.message || String(err))}</pre></div>`;
+  }
+}
+
+bootApp();
 </script>
 </body>
 </html>
